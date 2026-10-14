@@ -21,8 +21,32 @@ function toNumber(value, fallback) {
   return number;
 }
 
-function startRing(totalServers, basePort, readWriteServers, host) {
+function startRing(totalServers, readWriteServers, algorithm, basePort) {
+  const host = '127.0.0.1';
+
+  console.log('\nRun configuration');
+  console.log(`Servers: ${totalServers}`);
+  console.log(`Read-write: ${readWriteServers}`);
+  console.log(`Read-only: ${totalServers - readWriteServers}`);
+  console.log(`Algorithm: ${algorithm}`);
+  console.log(`Host: ${host}`);
+  console.log(`Base port: ${basePort}`);
+  console.log('Turns per server: 10');
+  console.log('Sleep per turn: 1000ms');
   console.log('\nStarting ring...');
+
+  const serverPorts = [];
+  let port = basePort;
+
+  for (let i = 0; i < totalServers; i++) {
+    if (port === 5432) {
+      console.log('Skipping port 5432.');
+      port++;
+    }
+
+    serverPorts.push(String(port));
+    port++;
+  }
 
   for (let i = 0; i < totalServers; i++) {
     let serverType = '2';
@@ -30,15 +54,15 @@ function startRing(totalServers, basePort, readWriteServers, host) {
       serverType = '1';
     }
 
-    const myPort = basePort + i;
-    let nextPort = basePort + i + 1;
+    const myPort = serverPorts[i];
+    let nextPort = serverPorts[i + 1];
     if (i === totalServers - 1) {
-      nextPort = basePort;
+      nextPort = serverPorts[0];
     }
 
-    let previousPort = basePort + i - 1;
+    let previousPort = serverPorts[i - 1];
     if (i === 0) {
-      previousPort = basePort + totalServers - 1;
+      previousPort = serverPorts[totalServers - 1];
     }
 
     let hasToken = '0';
@@ -57,7 +81,9 @@ function startRing(totalServers, basePort, readWriteServers, host) {
         PREVIOUS_PORT: String(previousPort),
         NEXT_HOST: host,
         NEXT_PORT: String(nextPort),
-        HAS_TOKEN: hasToken
+        HAS_TOKEN: hasToken,
+        SERVER_PORTS: serverPorts.join(','),
+        ALGORITHM: algorithm
       },
       stdio: 'inherit'
     });
@@ -65,7 +91,6 @@ function startRing(totalServers, basePort, readWriteServers, host) {
     servers.push(server);
   }
 
-  console.log(`\n${totalServers} servers started.`);
   console.log('Press CTRL+C to stop all launched servers.');
 }
 
@@ -89,7 +114,7 @@ async function main() {
 
   if (option === '1') {
     reader.close();
-    startRing(3, 5001, 2, '127.0.0.1');
+    startRing(3, 2, '1', 5001);
     return;
   }
 
@@ -100,18 +125,38 @@ async function main() {
   }
 
   const serversAnswer = await ask(reader, 'how many servers? ');
-  const portAnswer = await ask(reader, 'base port? ');
   const readWriteAnswer = await ask(reader, 'how many read-write? ');
-  const hostAnswer = await ask(reader, 'host? ');
+  const basePortAnswer = await ask(reader, 'base port? ');
+  const algorithmAnswer = await ask(reader, 'algorithm? 1. neighbor read 2. broadcast update ');
 
   reader.close();
 
-  const totalServers = toNumber(serversAnswer, 3);
-  const basePort = toNumber(portAnswer, 5001);
-  const readWriteServers = toNumber(readWriteAnswer, 1);
-  const host = hostAnswer || '127.0.0.1';
+  let totalServers = toNumber(serversAnswer, 3);
+  let readWriteServers = toNumber(readWriteAnswer, 1);
+  let basePort = toNumber(basePortAnswer, 5001);
+  let algorithm = algorithmAnswer;
 
-  startRing(totalServers, basePort, readWriteServers, host);
+  if (totalServers < 1) {
+    totalServers = 3;
+  }
+
+  if (readWriteServers < 0) {
+    readWriteServers = 0;
+  }
+
+  if (readWriteServers > totalServers) {
+    readWriteServers = totalServers;
+  }
+
+  if (basePort < 1 || basePort > 65535) {
+    basePort = 5001;
+  }
+
+  if (algorithm !== '2') {
+    algorithm = '1';
+  }
+
+  startRing(totalServers, readWriteServers, algorithm, basePort);
 }
 
 process.on('SIGINT', () => {
